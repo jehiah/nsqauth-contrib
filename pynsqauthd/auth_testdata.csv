@@ -1,0 +1,4 @@
+login,ip,tls,topic,channel,subscribe,publish
+test,,,test,test,subscribe,
+test_local,127.0.0.1,true,local,.*,subscribe,publish
+test_publish,127.0.0.1,both,test_publish,,,publish
