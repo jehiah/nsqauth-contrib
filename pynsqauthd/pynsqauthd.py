@@ -129,7 +129,7 @@ class AuthApp(tornado.web.Application):
 
 if __name__ == "__main__":
     tornado.options.define("http_address", type=str, default="0.0.0.0:4181", help="<addr>:<port> to listen on for HTTP clients")
-    tornado.options.define("data_file", type=str, default="", help="a csv containing columns: login,ip,topic,channel")
+    tornado.options.define("data_file", type=str, default="", help="a csv containing columns: login,ip,tls,topic,channel,subscribe,publish")
     tornado.options.define("ttl", type=int, default=60*60, help="TTL for auth responses (in seconds)")
     tornado.options.define("oauth2_echo_endpoint", type=str, default="https://api-ssl.bitly.com/v3/user/info", 
         help="used to confirm an oauth2 access_token and to extract the login\n to use bitly oauth use https://api-ssl.bitly.com/v3/user/info")
