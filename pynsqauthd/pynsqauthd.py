@@ -84,7 +84,7 @@ class Auth(tornado.web.RequestHandler):
             params = urllib.urlencode(dict(access_token=secret))
             url = tornado.options.options.oauth2_echo_endpoint + "?" + params
             client = tornado.httpclient.AsyncHTTPClient()
-            client.fetch(url, callback=self.finish_oauth_get)
+            client.fetch(url, callback=self.finish_oauth_get, validate_cert=tornado.options.options.validate_cert)
             return
         else:
             self.start_match(login=secret)
@@ -99,10 +99,11 @@ class Auth(tornado.web.RequestHandler):
         self.finish(data)
     
     def finish_oauth_get(self, response):
+        logging.debug("oauth response %d %r", response.code, response.body)
+        raw_data = None
         try:
             assert response.code == 200
             raw_data = json.loads(response.body)
-            logging.info('got response %s', raw_data)
             data = raw_data
             keys = tornado.options.options.oauth2_response_path.split('.')
             while keys:
@@ -111,7 +112,7 @@ class Auth(tornado.web.RequestHandler):
             assert data
             self.start_match(login=data)
         except:
-            logging.exception('failed calling oauth response')
+            logging.exception('failed calling oauth %s %d %r %r', response.effective_url, response.code, response.body, response.error)
             self.set_status(403)
             self.finish(dict(message="NOT_AUTHORIZED", data=raw_data))
 
@@ -135,6 +136,7 @@ if __name__ == "__main__":
         help="used to confirm an oauth2 access_token and to extract the login\n to use bitly oauth use https://api-ssl.bitly.com/v3/user/info")
     tornado.options.define("oauth2_response_path", type=str, default="data.login", help="path in json response to get the login field")
     tornado.options.define("debug", type=bool, default=False)
+    tornado.options.define("validate_cert", type=bool, default=True)
     tornado.options.parse_command_line()
     
     assert os.path.exists(tornado.options.options.data_file), "file does not exist --data-file=%s" % tornado.options.options.data_file

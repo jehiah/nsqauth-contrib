@@ -55,7 +55,7 @@ class StatsProxy(tornado.web.RequestHandler):
     def finish_auth(self, response):
         self.pending -= 1
         try:
-            logging.debug("response %d %r", response.code, response.body)
+            logging.debug("auth response %d %r", response.code, response.body)
             assert response.code == 200
             raw_data = json.loads(response.body)
             self.permissions = raw_data['authorizations']
@@ -64,7 +64,9 @@ class StatsProxy(tornado.web.RequestHandler):
             if self.auth_servers:
                 self.start_auth()
                 return
-            raise
+            self.set_status(500)
+            self.finish(dict(status_txt="INTERNAL_ERROR"))
+            return
         
         if self.pending == 0:
             self.filter_stats()
@@ -88,18 +90,18 @@ class StatsProxy(tornado.web.RequestHandler):
     
     def is_authorized(self, topic, channel, permission):
         for auth in self.permissions:
-            topic_regex = re.compile(auth['topic'])
-            if not topic_regex.findall(topic):
+            topic_regex = re.compile('^' + auth['topic'] + '$')
+            if not topic_regex.match(topic):
                 continue
             if permission == 'publish' and 'publish' in auth['permissions']:
                 return True
             if permission == 'subscribe' and 'subscribe' in auth['permissions'] and not channel:
                 return True
             for channel_auth in auth['channels']:
-                channel_regex = re.compile(channel_auth)
+                channel_regex = re.compile('^'+ channel_auth + '$')
                 if not channel:
                     continue
-                if not channel_regex.findall(channel):
+                if not channel_regex.match(channel):
                     continue
                 return True
         return False
