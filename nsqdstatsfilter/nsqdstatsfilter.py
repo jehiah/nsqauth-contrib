@@ -18,28 +18,36 @@ class PingHandler(tornado.web.RequestHandler):
 class StatsProxy(tornado.web.RequestHandler):
     @tornado.web.asynchronous
     def get(self):
-        secret = self.get_argument("secret")
         self.auth_servers = list(self.settings["auth_addresses"])
         
-        self.pending = 2
-        client = tornado.httpclient.AsyncHTTPClient()
+        self.http_client = tornado.httpclient.AsyncHTTPClient()
 
-        client.fetch(self.settings["nsqd_http_endpoint"], headers={"Accept": "vnd/nsq; version=1.0"}, callback=self.finish_stats_get)
-        
+        self.pending = 1
+        self.start_auth()
+        self.http_client.fetch(self.settings["nsqd_http_endpoint"], headers={"Accept": "vnd/nsq; version=1.0"}, callback=self.finish_stats_get)
+    
+    def start_auth(self):
+        secret = self.get_argument("secret")
+        self.pending += 1
         auth_endpoint = "http://%s/auth?%s" % (self.auth_servers.pop(), urllib.urlencode(dict(
             remote_ip=self.request.remote_ip,
             tls='true' if self.request.protocol == 'https' else 'false',
             secret=secret
         )))
-        client.fetch(auth_endpoint, callback=self.finish_auth)
-        
+        self.http_client.fetch(auth_endpoint, callback=self.finish_auth)
 
     def finish_auth(self, response):
-        # TODO: have this recurse to rety against other auth servers
         self.pending -= 1
-        assert response.code == 200
-        raw_data = json.loads(response.body)
-        self.permissions = raw_data['authorizations']
+        try:
+            assert response.code == 200
+            raw_data = json.loads(response.body)
+            self.permissions = raw_data['authorizations']
+        except:
+            logging.error('got %r', response)
+            if self.auth_servers:
+                self.start_auth()
+                return
+            raise
         
         if self.pending == 0:
             self.filter_stats()
