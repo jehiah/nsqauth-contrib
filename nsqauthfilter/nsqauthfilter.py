@@ -16,8 +16,70 @@ class PingHandler(tornado.web.RequestHandler):
     def get(self):
         self.finish('OK')
 
+class AuthBase(tornado.web.RequestHandler):
+    def start_auth(self, callback):
+        secret = self.get_argument("secret")
+        self.pending += 1
+        auth_endpoint = self.auth_servers.pop()
+        logging.info("GET http://%s/auth", auth_endpoint)
+        auth_endpoint = "http://%s/auth?%s" % (auth_endpoint, urllib.urlencode(dict(
+            remote_ip=self.request.remote_ip,
+            tls='true' if self.request.protocol == 'https' else 'false',
+            secret=secret
+        )))
+        self.http_client.fetch(auth_endpoint, callback=functools.partial(self.finish_auth, callback=callback))
 
-class StatsProxy(tornado.web.RequestHandler):
+    def finish_auth(self, response, callback):
+        self.pending -= 1
+        try:
+            logging.debug("auth response %d %r", response.code, response.body)
+            assert response.code == 200
+            raw_data = json.loads(response.body)
+            self.permissions = raw_data['authorizations']
+        except:
+            logging.error('got %r', response)
+            if self.auth_servers:
+                self.start_auth(callback=self.filter_stats)
+                return
+            self.set_status(500)
+            self.finish(dict(status_txt="INTERNAL_ERROR"))
+            return
+        
+        if self.pending == 0:
+            callback()
+
+    def is_authorized(self, topic, channel, permission):
+        for auth in self.permissions:
+            topic_regex = re.compile('^' + auth['topic'] + '$')
+            if not topic_regex.match(topic):
+                continue
+            if permission == 'publish' and 'publish' in auth['permissions']:
+                return True
+            if permission == 'subscribe' and 'subscribe' in auth['permissions'] and not channel:
+                return True
+            for channel_auth in auth['channels']:
+                channel_regex = re.compile('^'+ channel_auth + '$')
+                if not channel:
+                    continue
+                if not channel_regex.match(channel):
+                    continue
+                return True
+        return False
+    
+    def api_response(self, data):
+        if self.request.headers['Accept'] == "vnd/nsq; version=1.0":
+            self.finish(data)
+        else:
+            self.finish(dict(status_code=200, status_txt="OK", data=data))
+    
+    def api_error(self, status_code, data):
+        if self.request.headers['Accept'] == "vnd/nsq; version=1.0":
+            self.set_stat(status_code)
+            self.finish(dict(message=data))
+        else:
+            self.finish(dict(status_code=status_code, status_txt=data, data=None))
+
+class StatsProxy(AuthBase):
     @tornado.web.asynchronous
     def get(self):
         self.stats = []
@@ -26,7 +88,7 @@ class StatsProxy(tornado.web.RequestHandler):
         self.http_client = tornado.httpclient.AsyncHTTPClient()
 
         self.pending = 0
-        self.start_auth()
+        self.start_auth(callback=self.filter_stats)
         assert len(self.settings["nsqd_endpoints"]) == 1
         for addr in self.settings["nsqd_endpoints"]:
             self.start_stats(addr)
@@ -39,37 +101,6 @@ class StatsProxy(tornado.web.RequestHandler):
         callback=functools.partial(self.finish_stats_get, addr=addr)
         logging.info("GET %s", endpoint)
         self.http_client.fetch(endpoint, headers={"Accept": "vnd/nsq; version=1.0"}, callback=callback)
-    
-    def start_auth(self):
-        secret = self.get_argument("secret")
-        self.pending += 1
-        auth_endpoint = self.auth_servers.pop()
-        logging.info("GET http://%s/auth", auth_endpoint)
-        auth_endpoint = "http://%s/auth?%s" % (auth_endpoint, urllib.urlencode(dict(
-            remote_ip=self.request.remote_ip,
-            tls='true' if self.request.protocol == 'https' else 'false',
-            secret=secret
-        )))
-        self.http_client.fetch(auth_endpoint, callback=self.finish_auth)
-
-    def finish_auth(self, response):
-        self.pending -= 1
-        try:
-            logging.debug("auth response %d %r", response.code, response.body)
-            assert response.code == 200
-            raw_data = json.loads(response.body)
-            self.permissions = raw_data['authorizations']
-        except:
-            logging.error('got %r', response)
-            if self.auth_servers:
-                self.start_auth()
-                return
-            self.set_status(500)
-            self.finish(dict(status_txt="INTERNAL_ERROR"))
-            return
-        
-        if self.pending == 0:
-            self.filter_stats()
     
     def finish_stats_get(self, response, addr):
         logging.debug("response %d %r", response.code, response.body)
@@ -88,23 +119,6 @@ class StatsProxy(tornado.web.RequestHandler):
         if self.pending == 0:
             self.filter_stats()
     
-    def is_authorized(self, topic, channel, permission):
-        for auth in self.permissions:
-            topic_regex = re.compile('^' + auth['topic'] + '$')
-            if not topic_regex.match(topic):
-                continue
-            if permission == 'publish' and 'publish' in auth['permissions']:
-                return True
-            if permission == 'subscribe' and 'subscribe' in auth['permissions'] and not channel:
-                return True
-            for channel_auth in auth['channels']:
-                channel_regex = re.compile('^'+ channel_auth + '$')
-                if not channel:
-                    continue
-                if not channel_regex.match(channel):
-                    continue
-                return True
-        return False
     
     def filter_stats(self):
         output_topics = dict()
@@ -144,11 +158,56 @@ class StatsProxy(tornado.web.RequestHandler):
                     output_topic['channels'].append(channel)
         
         if self.pending == 0:
-            if self.request.headers['Accept'] == "vnd/nsq; version=1.0":
-                self.finish(dict(topics=output_topics.values()))
-            else:
-                self.finish(dict(status_code=200, status_txt="OK", data=dict(topics=output_topics.values())))
+            self.api_response(dict(topics=output_topics.values()))
 
+
+class LookupProxy(AuthBase):
+    @tornado.web.asynchronous
+    def get(self):
+        self.auth_servers = list(self.settings["auth_addresses"])
+        self.http_client = tornado.httpclient.AsyncHTTPClient()
+        self.pending = 0
+        self.start_auth(callback=self.filter_lookupd)
+        self.seen_producers = set()
+        self.producers = []
+        topic = self.get_argument("topic")
+        assert self.settings["lookupd_endpoints"]
+        for endpoint in self.settings["lookupd_endpoints"]:
+            self.pending += 1
+            url = endpoint + '?' + urllib.urlencode(dict(topic=topic, format="json"))
+            logging.info("GET %s", url)
+            self.http_client.fetch(url, headers={"Accept": "vnd/nsq; version=1.0"}, callback=self.finish_lookupd_get)
+        assert self.pending > 0
+    
+    def finish_lookupd_get(self, response):
+        logging.debug("response %d %r", response.code, response.body)
+        # build up the list of producers we need to query
+        self.pending -= 1
+        
+        assert response.code == 200
+        raw_data = json.loads(response.body)
+        if "data" in raw_data:
+            producers = raw_data["data"]["producers"]
+        else:
+            producers = raw_data["producers"]
+    
+        for producer in producers:
+            
+            addr = "%s:%d" % (producer["broadcast_address"], producer["http_port"])
+            if addr in self.seen_producers:
+                continue
+            self.seen_producers.add(addr)
+            self.producers.append(producer)
+        
+        if self.pending == 0:
+            self.filter_lookupd()
+    
+    def filter_lookupd(self):
+        topic = self.get_argument("topic")
+        if self.is_authorized(topic, None, 'subscribe'):
+            self.api_response(dict(producers=self.producers))
+        else:
+            self.api_error(403, "AUTH_UNAUTHORIZED")
 
 class TopicStatsProxy(StatsProxy):
     @tornado.web.asynchronous
@@ -160,7 +219,7 @@ class TopicStatsProxy(StatsProxy):
         topic = self.get_argument("topic")
 
         self.pending = 0
-        self.start_auth()
+        self.start_auth(callback=self.filter_stats)
         assert self.settings["lookupd_endpoints"]
         for endpoint in self.settings["lookupd_endpoints"]:
             self.pending += 1
@@ -212,6 +271,7 @@ class Application(tornado.web.Application):
             (r"/ping", PingHandler),
             (r"/stats", StatsProxy),
             (r"/topic_stats", TopicStatsProxy),
+            (r"/lookup", LookupProxy),
         ]
         super(Application, self).__init__(handlers, **settings)
 
