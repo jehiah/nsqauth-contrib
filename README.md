@@ -3,17 +3,25 @@ nsqauth-contrib
 
 Useful companion apps for when using nsq with auth enabled
 
-## nsqdstatsfilter
+## nsqauthfilter
 
-Filter nsqd's /stats call to only the topics and channels you have access to.
+Filter a cluster of nsqd's `/stats` call to only the topics and channels you have access to.
+
+- `/topic_stats?topic=...&secret=...`
+
+Filter a nsqlookupd's `/lookup` call to return only topics you have access to
+
+- `/lookup?topic=...&secret=....`
+
+To filter a full nsqd hosts `/stats` call to only the topics and channels you have access to
 
 - `/stats?secret=...`
 
-Typical usage will be to run infront of a local nsqd
+Typical usage will be to run in front of a lookupd based cluster of nsqds
 
-    python nsqstatsfilter.py \
+    python nsqauthfilter.py \
        --auth-address=127.0.0.1:4181 \
-       --nsqd-http-address=127.0.0.1:4151 \
+       --lookupd-http-address=127.0.0.1:4161 \
        --http-address=0.0.0.0:4182
 
 ## pynsqauthd
@@ -35,7 +43,7 @@ johndoe,127.0.0.1,both,test_topic,test_channnel,subscribe,
 
 Typical usage will be like this:
 
-    python pynsqauthd \
+    python pynsqauthd.py \
       --data_file=permissions.csv \
       --http_address=0.0.0.0:4181 \
       --ttl=3600 \
