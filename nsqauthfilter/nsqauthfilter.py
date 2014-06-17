@@ -67,13 +67,13 @@ class AuthBase(tornado.web.RequestHandler):
         return False
     
     def api_response(self, data):
-        if self.request.headers['Accept'] == "vnd/nsq; version=1.0":
+        if self.request.headers['Accept'] == "application/vnd.nsq; version=1.0":
             self.finish(data)
         else:
             self.finish(dict(status_code=200, status_txt="OK", data=data))
     
     def api_error(self, status_code, data):
-        if self.request.headers['Accept'] == "vnd/nsq; version=1.0":
+        if self.request.headers['Accept'] == "application/vnd.nsq; version=1.0":
             self.set_stat(status_code)
             self.finish(dict(message=data))
         else:
@@ -100,7 +100,7 @@ class StatsProxy(AuthBase):
         endpoint = "http://%s/stats?format=json" % addr
         callback=functools.partial(self.finish_stats_get, addr=addr)
         logging.info("GET %s", endpoint)
-        self.http_client.fetch(endpoint, headers={"Accept": "vnd/nsq; version=1.0"}, callback=callback)
+        self.http_client.fetch(endpoint, headers={"Accept": "application/vnd.nsq; version=1.0"}, callback=callback)
     
     def finish_stats_get(self, response, addr):
         logging.debug("response %d %r", response.code, response.body)
@@ -176,7 +176,7 @@ class LookupProxy(AuthBase):
             self.pending += 1
             url = endpoint + '?' + urllib.urlencode(dict(topic=topic, format="json"))
             logging.info("GET %s", url)
-            self.http_client.fetch(url, headers={"Accept": "vnd/nsq; version=1.0"}, callback=self.finish_lookupd_get)
+            self.http_client.fetch(url, headers={"Accept": "application/vnd.nsq; version=1.0"}, callback=self.finish_lookupd_get)
         assert self.pending > 0
     
     def finish_lookupd_get(self, response):
@@ -225,7 +225,7 @@ class TopicStatsProxy(StatsProxy):
             self.pending += 1
             url = endpoint + '?' + urllib.urlencode(dict(topic=topic, format="json"))
             logging.info("GET %s", url)
-            self.http_client.fetch(url, headers={"Accept": "vnd/nsq; version=1.0"}, callback=self.finish_lookupd_get)
+            self.http_client.fetch(url, headers={"Accept": "application/vnd.nsq; version=1.0"}, callback=self.finish_lookupd_get)
         assert self.pending > 0
     
     def finish_lookupd_get(self, response):
