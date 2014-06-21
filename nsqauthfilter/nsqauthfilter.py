@@ -44,7 +44,6 @@ class AuthBase(tornado.web.RequestHandler):
             self.set_status(500)
             self.finish(dict(status_txt="INTERNAL_ERROR"))
             return
-        
         if self.pending == 0:
             callback()
 
@@ -56,6 +55,7 @@ class AuthBase(tornado.web.RequestHandler):
             if permission == 'publish' and 'publish' in auth['permissions']:
                 return True
             if permission == 'subscribe' and 'subscribe' in auth['permissions'] and not channel:
+                # we are just checking if there are any potentially matching subscribe checks
                 return True
             for channel_auth in auth['channels']:
                 channel_regex = re.compile('^'+ channel_auth + '$')
@@ -283,9 +283,10 @@ if __name__ == "__main__":
     tornado.options.define("lookupd_http_address", type=str, multiple=True, help="<addr>:<port> to connect to nsqlookupd (specify multiple times)")
     tornado.options.define("nsqd_http_address", type=str, multiple=True, help="<addr>:<port> of nsqd http address for stats call (skip if using lookupd; specify multiple times)")
     tornado.options.define("debug", type=bool, default=False)
+    tornado.options.define("xheaders", type=bool, default=False)
     tornado.options.parse_command_line()
     
-    http_server = tornado.httpserver.HTTPServer(Application())
+    http_server = tornado.httpserver.HTTPServer(Application(), xheaders=tornado.options.options.xheaders)
     addr, port = tornado.options.options.http_address.rsplit(':', 1)
     
     logging.info("listening on %s", tornado.options.options.http_address)

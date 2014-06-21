@@ -20,13 +20,16 @@ class DB(object):
         
         assert os.path.exists(filename)
         self.data = []
-        for row in csv.DictReader(open(filename, 'r')):
-            assert all([key in row for key in ['login', 'ip', 'tls', 'topic', 'channel', 'subscribe', 'publish']])
+        for i, row in enumerate(csv.DictReader(open(filename, 'r'))):
+            assert all([key in row for key in ['login', 'ip', 'tls_required', 'topic', 'channel', 'subscribe', 'publish']]), "invalid row:%d %r" % (i, row)
             if row['ip']:
                 row['ip'] = netaddr.IPSet([row['ip']])
             else:
                 row['ip'] = None
-            row['tls'] = row['tls'].lower() in ['1', 'true']
+            if row['tls_required'] and row['tls_required'] not in ['true', 'false', 'True', 'False']:
+                logging.error('tls_required value %r invalid. must be true/false (row:%d %r)', row['tls_required'], i, row)
+                raise TypeError()
+            row['tls_required'] = row['tls_required'].lower() in ['1', 'true', 'tls']
             permissions = []
             if row['subscribe'].lower() == 'subscribe':
                 permissions.append('subscribe')
@@ -39,7 +42,7 @@ class DB(object):
             self.data.append(row)
         logging.info('loaded %d data records from %s', len(self.data), filename)
     
-    def match(self, login, remote_ip, tls):
+    def match(self, login, remote_ip, tls_enabled):
         remote_ip = netaddr.IPAddress(remote_ip)
         def n():
             return defaultdict(list)
@@ -49,7 +52,7 @@ class DB(object):
                 continue
             if row['ip'] and remote_ip not in row['ip']:
                 continue
-            if row['tls'] and not tls:
+            if row['tls_required'] and not tls_enabled:
                 continue
             matches[row['topic']][','.join(row['permissions'])].append(row['channel'])
         
@@ -91,10 +94,10 @@ class Auth(tornado.web.RequestHandler):
     
     def start_match(self, login):
         remote_ip = self.get_argument("remote_ip")
-        tls = self.get_bool_argument("tls")
+        tls_enabled = self.get_bool_argument("tls")
         # returns a list of topics/channels this client has access to
         # in the format {ttl:..., authorizations=[{topic:..., channels:[".*", ...], permissions:[publish,subscribe]}]}
-        matches = list(self.settings['db'].match(login, remote_ip, tls))
+        matches = list(self.settings['db'].match(login, remote_ip, tls_enabled))
         data = dict(ttl=tornado.options.options.ttl, authorizations=matches, identity=login)
         self.finish(data)
     
@@ -137,11 +140,12 @@ if __name__ == "__main__":
     tornado.options.define("oauth2_response_path", type=str, default="data.login", help="path in json response to get the login field")
     tornado.options.define("debug", type=bool, default=False)
     tornado.options.define("validate_cert", type=bool, default=True)
+    tornado.options.define("xheaders", type=bool, default=False)
     tornado.options.parse_command_line()
     
     assert os.path.exists(tornado.options.options.data_file), "file does not exist --data-file=%s" % tornado.options.options.data_file
     
-    http_server = tornado.httpserver.HTTPServer(AuthApp())
+    http_server = tornado.httpserver.HTTPServer(AuthApp(), xheaders=tornado.options.options.xheaders)
     addr, port = tornado.options.options.http_address.rsplit(':', 1)
 
     logging.info("listening on %s", tornado.options.options.http_address)
