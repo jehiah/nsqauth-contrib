@@ -1,4 +1,5 @@
 login,ip,tls_required,topic,channel,subscribe,publish
+,127.0.0.3,false,test,test,subscribe,
 test,,false,test,test,subscribe,
 test_local,127.0.0.1,true,local,.*,subscribe,publish
 test_publish,127.0.0.1,false,test_publish,,,publish

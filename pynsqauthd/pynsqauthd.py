@@ -98,8 +98,13 @@ class Auth(tornado.web.RequestHandler):
         # returns a list of topics/channels this client has access to
         # in the format {ttl:..., authorizations=[{topic:..., channels:[".*", ...], permissions:[publish,subscribe]}]}
         matches = list(self.settings['db'].match(login, remote_ip, tls_enabled))
-        data = dict(ttl=tornado.options.options.ttl, authorizations=matches, identity=login)
-        self.finish(data)
+        
+        if not matches and not login:
+            self.set_status(403)
+            self.finish(dict(message="NOT_AUTHORIZED"))
+        else:
+            data = dict(ttl=tornado.options.options.ttl, authorizations=matches, identity=login)
+            self.finish(data)
     
     def finish_oauth_get(self, response):
         logging.debug("oauth response %d %r", response.code, response.body)
@@ -115,9 +120,9 @@ class Auth(tornado.web.RequestHandler):
             assert data
             self.start_match(login=data)
         except:
-            logging.exception('failed calling oauth %s %d %r %r', response.effective_url, response.code, response.body, response.error)
-            self.set_status(403)
-            self.finish(dict(message="NOT_AUTHORIZED", data=raw_data))
+            logging.error('failed calling oauth %s %d %r %r', response.effective_url, response.code, response.body, response.error)
+            # there could still be matches on IP that don't require a login
+            self.start_match(login=None)
 
 
 class AuthApp(tornado.web.Application):
