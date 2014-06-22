@@ -122,7 +122,7 @@ class Auth(tornado.web.RequestHandler):
         except:
             logging.error('failed calling oauth %s %d %r %r', response.effective_url, response.code, response.body, response.error)
             # there could still be matches on IP that don't require a login
-            self.start_match(login=None)
+            self.start_match(login="")
 
 
 class AuthApp(tornado.web.Application):
