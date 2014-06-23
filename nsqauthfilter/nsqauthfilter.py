@@ -254,7 +254,7 @@ class TopicStatsProxy(StatsProxy):
 class Application(tornado.web.Application):
     def __init__(self):
         
-        addresses = tornado.options.options.auth_address
+        addresses = tornado.options.options.auth_http_address
         assert isinstance(addresses, list)
         
         lookupd_endpoints = []
@@ -279,7 +279,7 @@ class Application(tornado.web.Application):
 
 if __name__ == "__main__":
     tornado.options.define("http_address", type=str, default="0.0.0.0:4182", help="<addr>:<port> to listen on for HTTP clients")
-    tornado.options.define("auth_address", type=str, default="127.0.0.1:4181", multiple=True, help="<addr>:<port> to connect to auth server")
+    tornado.options.define("auth_http_address", type=str, default="127.0.0.1:4181", multiple=True, help="<addr>:<port> to connect to auth server")
     tornado.options.define("lookupd_http_address", type=str, multiple=True, help="<addr>:<port> to connect to nsqlookupd (specify multiple times)")
     tornado.options.define("nsqd_http_address", type=str, multiple=True, help="<addr>:<port> of nsqd http address for stats call (skip if using lookupd; specify multiple times)")
     tornado.options.define("debug", type=bool, default=False)
