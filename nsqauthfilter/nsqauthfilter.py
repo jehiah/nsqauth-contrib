@@ -74,7 +74,7 @@ class AuthBase(tornado.web.RequestHandler):
     
     def api_error(self, status_code, data):
         if self.request.headers['Accept'] == "application/vnd.nsq; version=1.0":
-            self.set_stat(status_code)
+            self.set_status(status_code)
             self.finish(dict(message=data))
         else:
             self.finish(dict(status_code=status_code, status_txt=data, data=None))
