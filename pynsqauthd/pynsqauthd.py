@@ -90,9 +90,9 @@ class Auth(tornado.web.RequestHandler):
             client.fetch(url, callback=self.finish_oauth_get, validate_cert=tornado.options.options.validate_cert)
             return
         else:
-            self.start_match(login=secret)
+            self.start_match(login=secret, skip_identity=True)
     
-    def start_match(self, login):
+    def start_match(self, login, skip_identity=False):
         remote_ip = self.get_argument("remote_ip")
         tls_enabled = self.get_bool_argument("tls")
         # returns a list of topics/channels this client has access to
@@ -103,7 +103,7 @@ class Auth(tornado.web.RequestHandler):
             self.set_status(403)
             self.finish(dict(message="NOT_AUTHORIZED"))
         else:
-            data = dict(ttl=tornado.options.options.ttl, authorizations=matches, identity=login)
+            data = dict(ttl=tornado.options.options.ttl, authorizations=matches, identity=login if not skip_identity else '')
             self.finish(data)
     
     def finish_oauth_get(self, response):
