@@ -184,12 +184,15 @@ class LookupProxy(AuthBase):
         # build up the list of producers we need to query
         self.pending -= 1
         
-        assert response.code == 200
-        raw_data = json.loads(response.body)
-        if "data" in raw_data:
-            producers = raw_data["data"]["producers"]
+        if response.code == 404:
+            producers = []
         else:
-            producers = raw_data["producers"]
+            assert response.code == 200
+            raw_data = json.loads(response.body)
+            if "data" in raw_data:
+                producers = raw_data["data"]["producers"]
+            else:
+                producers = raw_data["producers"]
     
         for producer in producers:
             
